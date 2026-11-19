@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.ipa
+*.dSYM
+*.dSYM.zip
+*.xcarchive
+
+# Apple signing material — never commit these
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+
+# Local exports
+ExportOptions.plist
