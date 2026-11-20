@@ -247,10 +247,40 @@ workflows:
     - name: Apply Apple signing files
       script: |
         xcode-project use-profiles
-    - name: Assign Codemagic build number
+    - name: Assign App Store Connect build number
       script: |
+        set -euo pipefail
         cd "$CM_BUILD_DIR"
-        agvtool new-version -all "$BUILD_NUMBER"
+
+        SOURCE_BUILD="$(agvtool what-version -terse)"
+        APPLE_APP_ID="$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" \
+          --strict-match-identifier --json | python3 -c '
+        import json
+        import sys
+
+        apps = json.load(sys.stdin)
+        if len(apps) != 1:
+            raise SystemExit("Expected exactly one App Store Connect app for this bundle ID.")
+        print(apps[0]["id"])
+        ')"
+        LATEST_BUILD="$(app-store-connect get-latest-build-number "$APPLE_APP_ID" --platform IOS --all-versions)"
+        UPLOAD_BUILD="$(python3 - "$SOURCE_BUILD" "$LATEST_BUILD" <<'PY'
+        import re
+        import sys
+
+        source, latest = sys.argv[1:]
+        if not re.fullmatch(r"[0-9]+", source):
+            raise SystemExit(f"Unexpected Xcode build number: {source!r}")
+        if latest and not re.fullmatch(r"[0-9]+(?:\.[0-9]+){0,2}", latest):
+            raise SystemExit(f"Unexpected App Store Connect build number: {latest!r}")
+        next_apple_build = int(latest.split(".")[0]) + 1 if latest else 1
+        print(max(int(source), next_apple_build))
+        PY
+        )"
+
+        echo "Building IPA as build $UPLOAD_BUILD"
+        agvtool new-version -all "$UPLOAD_BUILD"
+        echo "INSYNC_UPLOAD_BUILD=$UPLOAD_BUILD" >> "$CM_ENV"
     - name: Build signed In.Sync IPA
       script: |
         xcode-project build-ipa \
@@ -281,6 +311,13 @@ workflows:
         fi
 
         INFO_PLIST="$APP_PATH/Info.plist"
+
+        EXPORTED_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INFO_PLIST")"
+        if [ "$EXPORTED_BUILD" != "$INSYNC_UPLOAD_BUILD" ]; then
+          echo "IPA build number $EXPORTED_BUILD does not match expected build $INSYNC_UPLOAD_BUILD."
+          exit 1
+        fi
+        echo "Verified IPA build number: $EXPORTED_BUILD"
 
         EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO_PLIST")"
         BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")"
