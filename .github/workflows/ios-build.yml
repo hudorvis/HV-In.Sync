@@ -1,0 +1,31 @@
+name: In.Sync
+run-name: In.Sync v26.11.19.01
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Compile iPhone and iPad target
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Release for iOS devices
+        run: |
+          xcodebuild -project InSync.xcodeproj -scheme InSync \
+            -configuration Release -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/insync-device" CODE_SIGNING_ALLOWED=NO build
+      - name: Build Debug for the iOS Simulator
+        run: |
+          xcodebuild -project InSync.xcodeproj -scheme InSync \
+            -configuration Debug -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/insync-simulator" CODE_SIGNING_ALLOWED=NO build

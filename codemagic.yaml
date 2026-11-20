@@ -1,0 +1,364 @@
+workflows:
+  insync-ios:
+    name: In.Sync
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: In.Sync
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: au.h-v.in.sync
+      vars:
+        XCODE_PROJECT: InSync.xcodeproj
+        XCODE_SCHEME: InSync
+        BUNDLE_ID: au.h-v.in.sync
+      xcode: 26.4
+    scripts:
+    - name: Confirm In.Sync source revision
+      script: |
+        set -euo pipefail
+
+        EXPECTED_REVISION="v26.11.19.01"
+        BUILD_INFO="$CM_BUILD_DIR/InSync/BuildInfo.swift"
+
+        echo "Expected app revision: $EXPECTED_REVISION"
+
+        if [ ! -f "$BUILD_INFO" ]; then
+          echo "BuildInfo.swift was not found at: $BUILD_INFO"
+          exit 1
+        fi
+
+        if ! grep -Fq "static let internalRevision = \"$EXPECTED_REVISION\"" "$BUILD_INFO"; then
+          echo "Source revision verification failed."
+          echo "BuildInfo.swift contains:"
+          cat "$BUILD_INFO"
+          exit 1
+        fi
+
+        echo "Source revision verification passed."
+
+        PROJECT_FILE="$CM_BUILD_DIR/InSync.xcodeproj/project.pbxproj"
+        SOURCE_PLIST="$CM_BUILD_DIR/InSync/Info.plist"
+        ICON_MANIFEST="$CM_BUILD_DIR/InSync/Assets.xcassets/AppIcon.appiconset/Contents.json"
+        PRIVACY_MANIFEST="$CM_BUILD_DIR/InSync/PrivacyInfo.xcprivacy"
+
+        if [ "$(grep -Fc 'CURRENT_PROJECT_VERSION = 32;' "$PROJECT_FILE")" -ne 2 ]; then
+          echo "Source build-number verification failed."
+          grep -n 'CURRENT_PROJECT_VERSION' "$PROJECT_FILE" || true
+          exit 1
+        fi
+
+        if [ "$(grep -Fc 'PRODUCT_BUNDLE_IDENTIFIER = au.h-v.in.sync;' "$PROJECT_FILE")" -ne 2 ]; then
+          echo "Bundle identifier source verification failed."
+          grep -n 'PRODUCT_BUNDLE_IDENTIFIER' "$PROJECT_FILE" || true
+          exit 1
+        fi
+
+        if [ "$(grep -Fc 'TARGETED_DEVICE_FAMILY = "1,2";' "$PROJECT_FILE")" -ne 2 ]; then
+          echo "Universal target verification failed."
+          grep -n 'TARGETED_DEVICE_FAMILY' "$PROJECT_FILE" || true
+          exit 1
+        fi
+
+        python3 - "$SOURCE_PLIST" "$ICON_MANIFEST" <<'PY'
+        import json
+        import plistlib
+        import sys
+
+        plist_path, icon_path = sys.argv[1:]
+        with open(plist_path, "rb") as handle:
+            info = plistlib.load(handle)
+
+        expected_ipad_orientations = {
+            "UIInterfaceOrientationPortrait",
+            "UIInterfaceOrientationPortraitUpsideDown",
+            "UIInterfaceOrientationLandscapeLeft",
+            "UIInterfaceOrientationLandscapeRight",
+        }
+        actual_ipad_orientations = set(
+            info.get("UISupportedInterfaceOrientations~ipad", [])
+        )
+        if actual_ipad_orientations != expected_ipad_orientations:
+            raise SystemExit(
+                f"Unexpected iPad orientations: {sorted(actual_ipad_orientations)}"
+            )
+
+        if "UIRequiresFullScreen" in info:
+            raise SystemExit("UIRequiresFullScreen must be absent for resizable iPad support")
+
+        with open(icon_path, "r", encoding="utf-8") as handle:
+            icons = json.load(handle)
+
+        ipad_sizes = {
+            (item.get("size"), item.get("scale"))
+            for item in icons.get("images", [])
+            if item.get("idiom") == "ipad"
+        }
+        required_ipad_sizes = {
+            ("20x20", "1x"), ("20x20", "2x"),
+            ("29x29", "1x"), ("29x29", "2x"),
+            ("40x40", "1x"), ("40x40", "2x"),
+            ("76x76", "1x"), ("76x76", "2x"),
+            ("83.5x83.5", "2x"),
+        }
+        missing = required_ipad_sizes - ipad_sizes
+        if missing:
+            raise SystemExit(f"Missing iPad app icon entries: {sorted(missing)}")
+
+        print("Targeted device families: iPhone + iPad")
+        print("iPad orientation verification passed.")
+        print("iPad app icon verification passed.")
+        print("Universal source verification passed.")
+        PY
+
+        MEASUREMENT_SOURCE="$CM_BUILD_DIR/InSync/MeasurementEngine.swift"
+        TONE_SOURCE="$CM_BUILD_DIR/InSync/ToneGenerator.swift"
+
+        grep -Fq 'private var microphoneEngine = AVAudioEngine()' "$MEASUREMENT_SOURCE"
+        grep -Fq 'inputNode.installTap(' "$MEASUREMENT_SOURCE"
+        grep -Fq 'AVAudioTime.seconds(forHostTime:' "$MEASUREMENT_SOURCE"
+        grep -Fq 'private func videoPresentationHostTime' "$MEASUREMENT_SOURCE"
+        grep -Fq 'inputFormat.commonFormat == .pcmFormatFloat32' "$MEASUREMENT_SOURCE"
+        grep -Fq 'private struct PendingVideoPulse' "$MEASUREMENT_SOURCE"
+        grep -Fq 'Microphone active • no matching tone' "$MEASUREMENT_SOURCE"
+        grep -Fq 'let pipDuration = 0.120' "$TONE_SOURCE"
+        grep -Fq 'private(set) var usesBuiltInOutput = false' "$TONE_SOURCE"
+
+        if grep -Fq 'AVCaptureAudioDataOutput' "$MEASUREMENT_SOURCE"; then
+          echo "Legacy AVCapture audio path is still present."
+          exit 1
+        fi
+        if grep -Fq 'decodePCM' "$MEASUREMENT_SOURCE"; then
+          echo "Legacy manual PCM decoder is still present."
+          exit 1
+        fi
+        if grep -Fq 'newAudioOutput.audioSettings' "$MEASUREMENT_SOURCE"; then
+          echo "Unavailable iOS audioSettings assignment is still present."
+          exit 1
+        fi
+
+        echo "AVAudioEngine microphone source verification passed."
+        echo "Host-time synchronisation source verification passed."
+        CALIBRATION_SOURCE="$CM_BUILD_DIR/InSync/DeviceCalibration.swift"
+
+        grep -Fq 'NSPrivacyAccessedAPICategoryUserDefaults' "$PRIVACY_MANIFEST"
+        grep -Fq '<string>CA92.1</string>' "$PRIVACY_MANIFEST"
+        grep -Fq 'mode: .measurement' "$CALIBRATION_SOURCE"
+        grep -Fq 'factoryMeasureCorrectionMilliseconds = 40.5' "$CALIBRATION_SOURCE"
+        grep -Fq 'func selectLens(' "$MEASUREMENT_SOURCE"
+        grep -Fq '.builtInWideAngleCamera' "$MEASUREMENT_SOURCE"
+        grep -Fq 'self.availableLenses = options' "$MEASUREMENT_SOURCE"
+        grep -Fq 'AVCaptureDevice.DiscoverySession' "$MEASUREMENT_SOURCE"
+        grep -Fq '.builtInUltraWideCamera' "$MEASUREMENT_SOURCE"
+        grep -Fq '.builtInTelephotoCamera' "$MEASUREMENT_SOURCE"
+        grep -Fq '!camera.isVirtualDevice' "$MEASUREMENT_SOURCE"
+        grep -Fq 'switchToRearLens' "$MEASUREMENT_SOURCE"
+        grep -Fq 'captureSession.removeInput(previousInput)' "$MEASUREMENT_SOURCE"
+        grep -Fq 'cameraInput = replacementInput' "$MEASUREMENT_SOURCE"
+        grep -Fq 'clearPendingCorrelationForLensChange' "$MEASUREMENT_SOURCE"
+        grep -Fq 'videoIgnoreUntilHostTime = CACurrentMediaTime() + 1.10' "$MEASUREMENT_SOURCE"
+        if grep -Eq 'builtInTripleCamera|builtInDualWideCamera|builtInDualCamera|virtualDeviceSwitchOverVideoZoomFactors|secondaryNativeResolutionZoomFactors|displayVideoZoomFactorMultiplier|videoZoomFactor[[:space:]]*=' "$MEASUREMENT_SOURCE"; then
+          echo "Virtual-camera or direct zoom-factor code is present in the physical-lens build."
+          grep -En 'builtInTripleCamera|builtInDualWideCamera|builtInDualCamera|virtualDeviceSwitchOverVideoZoomFactors|secondaryNativeResolutionZoomFactors|displayVideoZoomFactorMultiplier|videoZoomFactor[[:space:]]*=' "$MEASUREMENT_SOURCE" || true
+          exit 1
+        fi
+        grep -Fq 'startWhenApplicationIsActive' "$MEASUREMENT_SOURCE"
+        grep -Fq 'isHandlingPermissionTransition' "$MEASUREMENT_SOURCE"
+        grep -Fq 'serviceMeasureCorrectionMilliseconds' "$CALIBRATION_SOURCE"
+        grep -Fq 'static let algorithmVersion = 7' "$CALIBRATION_SOURCE"
+        grep -Fq 'but do not apply it to Reference timing' "$CALIBRATION_SOURCE"
+        REFERENCE_CORRECTION_BODY="$(sed -n '/func referenceCorrectionMilliseconds(/,/^    }/p' "$CALIBRATION_SOURCE")"
+        printf '%s\n' "$REFERENCE_CORRECTION_BODY" | grep -Fq '_ = frequency'
+        printf '%s\n' "$REFERENCE_CORRECTION_BODY" | grep -Fq 'return 0'
+        if printf '%s\n' "$REFERENCE_CORRECTION_BODY" | grep -Fq 'referenceResidualMilliseconds'; then
+          echo "Reference acoustic-loop correction is being applied again."
+          exit 1
+        fi
+        grep -Fq 'pulses = (0..<15).map' "$CALIBRATION_SOURCE"
+        grep -Fq 'CADisplayLink' "$CALIBRATION_SOURCE"
+        grep -Fq 'link.targetTimestamp' "$CALIBRATION_SOURCE"
+        grep -Fq 'input.installTap(' "$CALIBRATION_SOURCE"
+        grep -Fq 'AVAudioTime.seconds(forHostTime:' "$CALIBRATION_SOURCE"
+        grep -Fq 'CalibrationSignature.frequencies' "$CALIBRATION_SOURCE"
+        grep -Fq 'setCalibrationFlashVisible' "$CALIBRATION_SOURCE"
+        grep -Fq 'isAwaitingMicrophonePermission' "$CALIBRATION_SOURCE"
+        grep -Fq 'startWhenApplicationIsActive' "$CALIBRATION_SOURCE"
+        grep -Fq 'Warming the built-in audio path' "$CALIBRATION_SOURCE"
+        grep -Fq 'primeOutput()' "$CALIBRATION_SOURCE"
+        grep -Fq 'refreshPresentationLatency()' "$CALIBRATION_SOURCE"
+        grep -Fq 'audioPreparationAttempt < 3' "$CALIBRATION_SOURCE"
+        grep -Fq 'markFailure shouldMarkFailure: Bool' "$CALIBRATION_SOURCE"
+        grep -Fq 'self.markFailure(finalMessage)' "$CALIBRATION_SOURCE"
+
+        if grep -Fq '        markFailure: Bool,' "$CALIBRATION_SOURCE"; then
+          echo "A Bool parameter still shadows the markFailure(_:) method."
+          exit 1
+        fi
+        grep -Fq '!calibration.isHandlingPermissionTransition' "$CM_BUILD_DIR/InSync/ContentView.swift"
+        grep -Fq 'InSyncBuildInfo.internalRevision' "$CM_BUILD_DIR/InSync/ContentView.swift"
+        grep -Fq 'videoIgnoreUntilHostTime' "$MEASUREMENT_SOURCE"
+
+        if grep -Fq 'videoZoomFactor =' "$MEASUREMENT_SOURCE"; then
+          echo "A direct camera zoom assignment is present in the physical-lens build."
+          grep -n 'videoZoomFactor =' "$MEASUREMENT_SOURCE" || true
+          exit 1
+        fi
+        if grep -Fq 'preconditionFailure("Capture preview layer is unavailable")' "$CM_BUILD_DIR/InSync/ContentView.swift"; then
+          echo "Fatal preview-layer precondition is still present."
+          exit 1
+        fi
+        if grep -Fq 'DispatchQueue.main.async(execute: update)' "$CM_BUILD_DIR/InSync/ContentView.swift" \
+            && grep -Fq 'self?.applyVideoRotation(angle)' "$CM_BUILD_DIR/InSync/ContentView.swift"; then
+          echo "Optional-return rotation closure is still present."
+          exit 1
+        fi
+        grep -Fq 'let update: () -> Void = { [weak self] in' "$CM_BUILD_DIR/InSync/ContentView.swift"
+        grep -Fq 'self.applyVideoRotation(angle)' "$CM_BUILD_DIR/InSync/ContentView.swift"
+        grep -Fq 'rotationDeviceUniqueID' "$CM_BUILD_DIR/InSync/ContentView.swift"
+
+        if grep -REq 'import[[:space:]]+ReplayKit|RPScreenRecorder|RPSystemBroadcastPickerView|startCapture\(' "$CM_BUILD_DIR/InSync" \
+            || grep -Fq 'ReplayKit.framework' "$PROJECT_FILE"; then
+          echo "ReplayKit or screen-capture code is present in the app source."
+          exit 1
+        fi
+        if grep -Fq 'RPScreenRecorder' "$CALIBRATION_SOURCE"; then
+          echo "Legacy ReplayKit calibration dependency is still present."
+          exit 1
+        fi
+        if grep -Fq 'The calibration tones could not be separated reliably' "$CALIBRATION_SOURCE"; then
+          echo "Legacy per-frequency calibration failure is still present."
+          exit 1
+        fi
+
+        echo "Host-time duplex calibration source verification passed."
+        echo "Physical rear-camera lens switching source verification passed."
+        echo "Measurement detector source verification passed."
+    - name: Compile In.Sync against the iOS device SDK
+      script: |
+        set -euo pipefail
+        xcodebuild \
+          -project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+          -scheme "$XCODE_SCHEME" \
+          -configuration Release \
+          -destination 'generic/platform=iOS' \
+          -derivedDataPath "$CM_BUILD_DIR/build/unsigned-derived-data" \
+          CODE_SIGNING_ALLOWED=NO build
+    - name: Apply Apple signing files
+      script: |
+        xcode-project use-profiles
+    - name: Assign Codemagic build number
+      script: |
+        cd "$CM_BUILD_DIR"
+        agvtool new-version -all "$BUILD_NUMBER"
+    - name: Build signed In.Sync IPA
+      script: |
+        xcode-project build-ipa \
+          --project "$CM_BUILD_DIR/$XCODE_PROJECT" \
+          --scheme "$XCODE_SCHEME"
+    - name: Validate exported In.Sync IPA
+      script: |-
+        set -euo pipefail
+
+        IPA_PATH="$(find "$CM_BUILD_DIR/build/ios/ipa" -maxdepth 1 -name '*.ipa' -print -quit)"
+
+        if [ -z "${IPA_PATH:-}" ] || [ ! -f "$IPA_PATH" ]; then
+          echo "No exported IPA was found."
+          exit 1
+        fi
+
+        CHECK_DIR="$CM_BUILD_DIR/build/ipa-preflight"
+        rm -rf "$CHECK_DIR"
+        mkdir -p "$CHECK_DIR"
+
+        unzip -q "$IPA_PATH" -d "$CHECK_DIR"
+
+        APP_PATH="$(find "$CHECK_DIR/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)"
+
+        if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+          echo "The IPA does not contain a Payload/*.app bundle."
+          exit 1
+        fi
+
+        INFO_PLIST="$APP_PATH/Info.plist"
+
+        EXECUTABLE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$INFO_PLIST")"
+        BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST")"
+
+        echo "App bundle: $APP_PATH"
+        echo "Bundle identifier: $BUNDLE_ID"
+        echo "Bundle executable: $EXECUTABLE_NAME"
+
+        if [ "$BUNDLE_ID" != "au.h-v.in.sync" ]; then
+          echo "Unexpected bundle identifier: $BUNDLE_ID"
+          exit 1
+        fi
+
+        DEVICE_FAMILIES="$(/usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' "$INFO_PLIST")"
+        echo "Device families:"
+        echo "$DEVICE_FAMILIES"
+
+        if ! echo "$DEVICE_FAMILIES" | grep -Eq '^[[:space:]]*1$'; then
+          echo "The exported app does not declare iPhone support."
+          exit 1
+        fi
+
+        if ! echo "$DEVICE_FAMILIES" | grep -Eq '^[[:space:]]*2$'; then
+          echo "The exported app does not declare iPad support."
+          exit 1
+        fi
+
+        IPAD_ORIENTATIONS="$(/usr/libexec/PlistBuddy -c 'Print :UISupportedInterfaceOrientations~ipad' "$INFO_PLIST")"
+        for ORIENTATION in \
+          UIInterfaceOrientationPortrait \
+          UIInterfaceOrientationPortraitUpsideDown \
+          UIInterfaceOrientationLandscapeLeft \
+          UIInterfaceOrientationLandscapeRight
+        do
+          if ! echo "$IPAD_ORIENTATIONS" | grep -Fq "$ORIENTATION"; then
+            echo "Missing iPad orientation: $ORIENTATION"
+            exit 1
+          fi
+        done
+
+        if /usr/libexec/PlistBuddy -c 'Print :UIRequiresFullScreen' "$INFO_PLIST" >/dev/null 2>&1; then
+          echo "UIRequiresFullScreen is unexpectedly present in the exported app."
+          exit 1
+        fi
+
+        echo "Universal iPhone/iPad IPA verification passed."
+
+        if [ -z "$EXECUTABLE_NAME" ]; then
+          echo "CFBundleExecutable is missing or empty."
+          exit 1
+        fi
+
+        EXECUTABLE_PATH="$APP_PATH/$EXECUTABLE_NAME"
+
+        if [ ! -f "$EXECUTABLE_PATH" ]; then
+          echo "The executable declared by CFBundleExecutable does not exist:"
+          echo "$EXECUTABLE_PATH"
+          find "$APP_PATH" -maxdepth 1 -type f -print
+          exit 1
+        fi
+
+        if [ ! -x "$EXECUTABLE_PATH" ]; then
+          echo "The declared app executable is not executable:"
+          echo "$EXECUTABLE_PATH"
+          exit 1
+        fi
+
+        file "$EXECUTABLE_PATH"
+        codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+        codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
+
+        echo "IPA preflight validation passed."
+    artifacts:
+    - build/ios/ipa/*.ipa
+    - /tmp/xcodebuild_logs/*.log
+    - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false
