@@ -77,5 +77,22 @@ PY
 
 capture "iPhone 17 Pro Max" "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max" \
   1320 2868 "In.Sync-iPhone-6.9-inch.png"
-capture "iPad Pro 13-inch (M5)" "com.apple.CoreSimulator.SimDeviceType.iPad-Pro-13-inch-M5" \
+IPAD_TYPE="$(xcrun simctl list devicetypes -j | python3 -c '
+import json
+import re
+import sys
+
+devices = json.load(sys.stdin)["devicetypes"]
+candidates = [
+    device for device in devices
+    if re.search(r"iPad Pro.*13[ -]inch", device["name"], re.IGNORECASE)
+]
+if not candidates:
+    raise SystemExit("No 13-inch iPad Pro simulator device type is installed.")
+print(next(
+    (device["identifier"] for device in candidates if "M4" in device["name"]),
+    candidates[0]["identifier"],
+))
+')"
+capture "iPad Pro 13-inch" "$IPAD_TYPE" \
   2064 2752 "In.Sync-iPad-13-inch.png"
