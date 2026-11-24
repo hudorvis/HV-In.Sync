@@ -1,5 +1,5 @@
 name: In.Sync
-run-name: In.Sync v26.11.19.01
+run-name: In.Sync v26.11.24.01
 
 on:
   push:
@@ -14,7 +14,7 @@ jobs:
   build:
     name: Compile iPhone and iPad target
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.4.app/Contents/Developer
     steps:
@@ -29,3 +29,14 @@ jobs:
           xcodebuild -project InSync.xcodeproj -scheme InSync \
             -configuration Debug -destination 'generic/platform=iOS Simulator' \
             -derivedDataPath "$RUNNER_TEMP/insync-simulator" CODE_SIGNING_ALLOWED=NO build
+      - name: Capture App Store screenshots
+        run: |
+          bash scripts/capture-app-store-screenshots.sh \
+            "$RUNNER_TEMP/insync-simulator/Build/Products/Debug-iphonesimulator/In.Sync.app" \
+            "$RUNNER_TEMP/app-store-screenshots"
+      - name: Upload App Store screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: In.Sync-v26.11.24.01-App-Store-Screenshots
+          path: ${{ runner.temp }}/app-store-screenshots/*.png
+          if-no-files-found: error

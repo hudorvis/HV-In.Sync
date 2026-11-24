@@ -19,7 +19,7 @@ workflows:
       script: |
         set -euo pipefail
 
-        EXPECTED_REVISION="v26.11.19.01"
+        EXPECTED_REVISION="v26.11.24.01"
         BUILD_INFO="$CM_BUILD_DIR/InSync/BuildInfo.swift"
 
         echo "Expected app revision: $EXPECTED_REVISION"
@@ -43,7 +43,7 @@ workflows:
         ICON_MANIFEST="$CM_BUILD_DIR/InSync/Assets.xcassets/AppIcon.appiconset/Contents.json"
         PRIVACY_MANIFEST="$CM_BUILD_DIR/InSync/PrivacyInfo.xcprivacy"
 
-        if [ "$(grep -Fc 'CURRENT_PROJECT_VERSION = 32;' "$PROJECT_FILE")" -ne 2 ]; then
+        if [ "$(grep -Fc 'CURRENT_PROJECT_VERSION = 33;' "$PROJECT_FILE")" -ne 2 ]; then
           echo "Source build-number verification failed."
           grep -n 'CURRENT_PROJECT_VERSION' "$PROJECT_FILE" || true
           exit 1
@@ -390,7 +390,18 @@ workflows:
         codesign -d --entitlements :- "$APP_PATH" 2>/dev/null || true
 
         echo "IPA preflight validation passed."
+    - name: Capture App Store screenshots
+      script: |
+        set -euo pipefail
+        SIMULATOR_BUILD_DIR="$CM_BUILD_DIR/build/simulator-derived-data"
+        xcodebuild -project "$CM_BUILD_DIR/$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+          -configuration Debug -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath "$SIMULATOR_BUILD_DIR" CODE_SIGNING_ALLOWED=NO build
+        bash "$CM_BUILD_DIR/scripts/capture-app-store-screenshots.sh" \
+          "$SIMULATOR_BUILD_DIR/Build/Products/Debug-iphonesimulator/In.Sync.app" \
+          "$CM_BUILD_DIR/build/app-store-screenshots"
     artifacts:
+    - build/app-store-screenshots/*.png
     - build/ios/ipa/*.ipa
     - /tmp/xcodebuild_logs/*.log
     - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
