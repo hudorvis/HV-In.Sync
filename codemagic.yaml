@@ -401,7 +401,7 @@ workflows:
           "$SIMULATOR_BUILD_DIR/Build/Products/Debug-iphonesimulator/In.Sync.app" \
           "$CM_BUILD_DIR/build/app-store-screenshots"
     artifacts:
-    - build/app-store-screenshots/*.png
+    - build/app-store-screenshots/*.jpg
     - build/ios/ipa/*.ipa
     - /tmp/xcodebuild_logs/*.log
     - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM

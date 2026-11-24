@@ -38,5 +38,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: In.Sync-v26.11.24.01-App-Store-Screenshots
-          path: ${{ runner.temp }}/app-store-screenshots/*.png
+          path: ${{ runner.temp }}/app-store-screenshots/*.jpg
           if-no-files-found: error

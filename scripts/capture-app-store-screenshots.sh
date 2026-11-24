@@ -43,7 +43,7 @@ trap cleanup EXIT
 
 capture() {
   local model="$1" device_type="$2" width="$3" height="$4" prefix="$5"
-  local scene filename screenshot
+  local scene filename screenshot metadata actual_format actual_width actual_height
   local scenes=(reference-time reference-frames reference-colours measure calibration)
 
   DEVICE_ID="$(xcrun simctl create "$model App Store Capture" "$device_type" "$RUNTIME")"
@@ -55,26 +55,21 @@ capture() {
   xcrun simctl install "$DEVICE_ID" "$APP_PATH"
   for scene in "${!scenes[@]}"; do
     filename="$(printf '%02d-%s' "$((scene + 1))" "${scenes[$scene]}")"
-    screenshot="$OUTPUT_DIR/In.Sync-$prefix-$filename.png"
+    screenshot="$OUTPUT_DIR/In.Sync-$prefix-$filename.jpg"
     SIMCTL_CHILD_INSYNC_SCREENSHOT="${scenes[$scene]}" \
       xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
     sleep 5
-    xcrun simctl io "$DEVICE_ID" screenshot "$screenshot"
+    xcrun simctl io "$DEVICE_ID" screenshot --type=jpeg "$screenshot"
 
-    python3 - "$screenshot" "$width" "$height" <<'PY'
-import struct
-import sys
-
-path, width, height = sys.argv[1:]
-with open(path, "rb") as screenshot:
-    header = screenshot.read(24)
-if header[:8] != b"\x89PNG\r\n\x1a\n" or header[12:16] != b"IHDR":
-    raise SystemExit(f"{path}: expected a PNG screenshot")
-actual = struct.unpack(">II", header[16:24])
-if actual != (int(width), int(height)):
-    raise SystemExit(f"{path}: expected {width} x {height}, got {actual}")
-print(f"{path}: verified {width} x {height}")
-PY
+    metadata="$(sips -g format -g pixelWidth -g pixelHeight "$screenshot")"
+    actual_format="$(awk '/format:/ {print $2}' <<< "$metadata")"
+    actual_width="$(awk '/pixelWidth:/ {print $2}' <<< "$metadata")"
+    actual_height="$(awk '/pixelHeight:/ {print $2}' <<< "$metadata")"
+    if [[ "$actual_format" != jpeg || "$actual_width" != "$width" || "$actual_height" != "$height" ]]; then
+      echo "$screenshot: expected a ${width} x ${height} JPEG, got $metadata" >&2
+      exit 1
+    fi
+    echo "$screenshot: verified ${width} x ${height}"
   done
 
   cleanup
