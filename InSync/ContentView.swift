@@ -269,6 +269,24 @@ struct ContentView: View {
                 )
             }
         }
+#if DEBUG && targetEnvironment(simulator)
+        .task {
+            switch ProcessInfo.processInfo.environment["INSYNC_SCREENSHOT"] {
+            case "reference-frames":
+                units = .frames
+                controlMode = .frames
+            case "reference-colours":
+                colourTheme = .magentaCyan
+                controlMode = .colour
+            case "measure":
+                page = .measure
+            case "calibration":
+                calibrationPresented = true
+            default:
+                break
+            }
+        }
+#endif
         .fullScreenCover(isPresented: $calibrationPresented) {
             DeviceCalibrationView(
                 manager: calibration,

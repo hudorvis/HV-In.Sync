@@ -42,8 +42,9 @@ cleanup() {
 trap cleanup EXIT
 
 capture() {
-  local model="$1" device_type="$2" width="$3" height="$4" filename="$5"
-  local screenshot="$OUTPUT_DIR/$filename"
+  local model="$1" device_type="$2" width="$3" height="$4" prefix="$5"
+  local scene filename screenshot
+  local scenes=(reference-time reference-frames reference-colours measure calibration)
 
   DEVICE_ID="$(xcrun simctl create "$model App Store Capture" "$device_type" "$RUNTIME")"
   xcrun simctl boot "$DEVICE_ID"
@@ -52,11 +53,15 @@ capture() {
     --dataNetwork wifi --wifiMode active --wifiBars 3 \
     --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
   xcrun simctl install "$DEVICE_ID" "$APP_PATH"
-  xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
-  sleep 5
-  xcrun simctl io "$DEVICE_ID" screenshot "$screenshot"
+  for scene in "${!scenes[@]}"; do
+    filename="$(printf '%02d-%s' "$((scene + 1))" "${scenes[$scene]}")"
+    screenshot="$OUTPUT_DIR/In.Sync-$prefix-$filename.png"
+    SIMCTL_CHILD_INSYNC_SCREENSHOT="${scenes[$scene]}" \
+      xcrun simctl launch --terminate-running-process "$DEVICE_ID" "$BUNDLE_ID"
+    sleep 5
+    xcrun simctl io "$DEVICE_ID" screenshot "$screenshot"
 
-  python3 - "$screenshot" "$width" "$height" <<'PY'
+    python3 - "$screenshot" "$width" "$height" <<'PY'
 import struct
 import sys
 
@@ -70,13 +75,14 @@ if actual != (int(width), int(height)):
     raise SystemExit(f"{path}: expected {width} x {height}, got {actual}")
 print(f"{path}: verified {width} x {height}")
 PY
+  done
 
   cleanup
   DEVICE_ID=""
 }
 
-capture "iPhone 17 Pro Max" "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro-Max" \
-  1320 2868 "In.Sync-iPhone-6.9-inch.png"
+capture "iPhone 17 Pro" "com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro" \
+  1206 2622 "iPhone-6.3-inch"
 IPAD_TYPE="$(xcrun simctl list devicetypes -j | python3 -c '
 import json
 import re
@@ -95,4 +101,4 @@ print(next(
 ))
 ')"
 capture "iPad Pro 13-inch" "$IPAD_TYPE" \
-  2064 2752 "In.Sync-iPad-13-inch.png"
+  2064 2752 "iPad-13-inch"
