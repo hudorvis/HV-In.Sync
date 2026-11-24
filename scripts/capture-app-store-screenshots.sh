@@ -47,6 +47,23 @@ capture() {
   local scenes=(reference-time reference-frames reference-colours measure calibration)
 
   DEVICE_ID="$(xcrun simctl create "$model App Store Capture" "$device_type" "$RUNTIME")"
+  # Suppress the first-boot Apple Intelligence readiness banner.
+  xcrun simctl list devices -j | python3 -c '
+import datetime
+import json
+import pathlib
+import plistlib
+import sys
+
+device = next(
+    device for devices in json.load(sys.stdin)["devices"].values()
+    for device in devices if device["udid"] == sys.argv[1]
+)
+prefs = pathlib.Path(device["dataPath"]) / "Library" / "Preferences"
+prefs.mkdir(parents=True, exist_ok=True)
+with (prefs / "com.apple.generativeexperiences.corefollowup.plist").open("wb") as file:
+    plistlib.dump({"DateOfLastAppleIntelligenceReadinessCFU": datetime.datetime(2020, 1, 1)}, file)
+' "$DEVICE_ID"
   xcrun simctl boot "$DEVICE_ID"
   xcrun simctl bootstatus "$DEVICE_ID" -b
   xcrun simctl status_bar "$DEVICE_ID" override --time "9:41" \
