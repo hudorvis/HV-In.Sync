@@ -50,7 +50,7 @@ capture() {
   xcrun simctl bootstatus "$DEVICE_ID" -b
   xcrun simctl status_bar "$DEVICE_ID" override --time "9:41" \
     --dataNetwork wifi --wifiMode active --wifiBars 3 \
-    --cellularMode active --cellularBars 4 --batteryState unplugged --batteryLevel 100
+    --cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
   xcrun simctl install "$DEVICE_ID" "$APP_PATH"
   xcrun simctl launch "$DEVICE_ID" "$BUNDLE_ID"
   sleep 5
