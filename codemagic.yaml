@@ -19,7 +19,7 @@ workflows:
       script: |
         set -euo pipefail
 
-        EXPECTED_REVISION="v26.11.24.01"
+        EXPECTED_REVISION="v26.11.28.01"
         BUILD_INFO="$CM_BUILD_DIR/InSync/BuildInfo.swift"
 
         echo "Expected app revision: $EXPECTED_REVISION"
@@ -43,7 +43,7 @@ workflows:
         ICON_MANIFEST="$CM_BUILD_DIR/InSync/Assets.xcassets/AppIcon.appiconset/Contents.json"
         PRIVACY_MANIFEST="$CM_BUILD_DIR/InSync/PrivacyInfo.xcprivacy"
 
-        if [ "$(grep -Fc 'CURRENT_PROJECT_VERSION = 33;' "$PROJECT_FILE")" -ne 2 ]; then
+        if [ "$(grep -Fc 'CURRENT_PROJECT_VERSION = 34;' "$PROJECT_FILE")" -ne 2 ]; then
           echo "Source build-number verification failed."
           grep -n 'CURRENT_PROJECT_VERSION' "$PROJECT_FILE" || true
           exit 1
