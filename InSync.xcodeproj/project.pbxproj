@@ -196,7 +196,7 @@
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = InSync/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-                MARKETING_VERSION = 1.1;
+                MARKETING_VERSION = 1.0;
                 PRODUCT_BUNDLE_IDENTIFIER = au.h-v.in.sync;
                 PRODUCT_NAME = "In.Sync";
                 SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -219,7 +219,7 @@
                 GENERATE_INFOPLIST_FILE = NO;
                 INFOPLIST_FILE = InSync/Info.plist;
                 IPHONEOS_DEPLOYMENT_TARGET = 17.0;
-                MARKETING_VERSION = 1.1;
+                MARKETING_VERSION = 1.0;
                 PRODUCT_BUNDLE_IDENTIFIER = au.h-v.in.sync;
                 PRODUCT_NAME = "In.Sync";
                 SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
